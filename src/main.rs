@@ -9,6 +9,8 @@ use std::fs::File;
 use std::io::Write;
 use glob::glob;
 use regex::Regex;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 fn identity<T>(x: T) -> T {x}
 
@@ -103,21 +105,39 @@ fn score(s1: &String, s2: &String) -> f32 {
     (longest_match_length/s2.len() as f32) * (longest_match_length/s1.len() as f32)
 }
 
+fn async_score<'a>(scored_paths: &Arc<Mutex<Vec<(f32, &'a String)>>>,
+                   cleansed_path: &String, path: &'a String) -> (){
+        thread::spawn(move || {
+            let mut scored_paths = scored_paths.lock().unwrap();
+            let s = (score(&path, &cleansed_path), path);
+            scored_paths.push(s);
+        });
+}
+
 fn find_alt(filename: &String, cleansed_path: &String, paths: Vec<String>, test_file: bool) -> String {
-    let (_, alternate) = paths.iter()
+    let reasonable_paths = paths.iter()
         .map(|path| cleanse_path(&path))
         .filter(|path| path.contains(filename.as_str()))  // filter to paths that contain the filename
-        .filter(|path| is_test_file(&path) != test_file)
-        .fold((0 as f32, "".to_string()), |result, path| {
-            let (highest_score, best_match) = result;
-            let s = score(&path, &cleansed_path);
-            if s > highest_score {
-                (s, path)
-            } else {
-                (highest_score, best_match)
-            }
-        });
-    alternate
+        .filter(|path| is_test_file(&path) != test_file);
+
+    let mut scored_paths = Arc::new(Mutex::new(vec![]));
+    for path in reasonable_paths {
+        async_score(&scored_paths, &cleansed_path, path);
+    }
+
+    let alternate = scored_paths.lock().unwrap().into_iter().fold((0 as f32, "".to_string()), |result, scored_path| {
+        let (highest_score, best_match) = result;
+        let (s, path) = scored_path;
+        let path = path.clone();
+        if s > highest_score {
+            (s, path)
+        } else {
+            (highest_score, best_match)
+        }
+    });
+
+    let (_, path) = alternate;
+    path
 }
 
 fn main() {
