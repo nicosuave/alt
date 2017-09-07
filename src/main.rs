@@ -12,6 +12,8 @@ pub mod alt;
 
 fn identity<T>(x: T) -> T {x}
 
+// type FileGlobResults = Result<std::path::PathBuf, glob::GlobError>;
+
 macro_rules! printerr(
     ($($arg:tt)*) => { {
         let r = writeln!(&mut ::std::io::stderr(), $($arg)*);
@@ -24,9 +26,13 @@ struct Options {
     file: Option<String>
 }
 
-fn get_possible_files_from_glob() -> Result<Vec<std::path::PathBuf>, glob::PatternError> {
-    glob("**/*").map(|paths| paths.flat_map(identity).filter(|path| path.is_file()).collect())
-}
+macro_rules! get_possible_files_from_glob(() => {
+    glob("**/*").map(|paths| paths.filter_map(Result::ok).filter(|path| path.is_file()))
+});
+
+// fn get_possible_files_from_glob() -> FileGlobResults {
+//     glob("**/*").map(|paths| paths.filter_map(Result::ok).filter(|path| path.is_file()))
+// }
 
 fn get_filename_minus_extension(path_str: &String) -> String {
     std::path::Path::new(path_str).file_stem().unwrap().to_str().unwrap().to_string()
@@ -148,9 +154,9 @@ fn main() {
             find_alt(&filename, &cleansed_path, paths, alt::path::classification::is_test_file(&cleansed_path))
         }
     } else {
-        match get_possible_files_from_glob() {
+        match get_possible_files_from_glob!() {
             Ok(paths) => {
-                let unwrapped_paths:Vec<String> = paths.iter().map(|path| { path.to_str().unwrap().to_string() }).collect();
+                let unwrapped_paths:Vec<String> = paths.map(|path| { path.to_str().unwrap().to_string() }).collect();
                 find_alt(&filename, &cleansed_path, unwrapped_paths, alt::path::classification::is_test_file(&cleansed_path))
             },
             Err(e) => {
